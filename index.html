@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DragAndDropper</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:             #13131a;
+      --surface:        #1c1c26;
+      --surface2:       #26263a;
+      --ch-bg:          #0d0d14;
+      --border:         #2e2e44;
+      --accent:         #7f5af0;
+      --accent-dim:     #7f5af055;
+      --green:          #2cb67d;
+      --text:           #e8e8f0;
+      --text-dim:       #6e6e8a;
+      --selected-bg:    #7f5af018;
+      --selected-bd:    #7f5af0;
+      --drag-line:      #7f5af0;
+      --hover-bd:       #2cb67d66;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 13px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Toolbar ────────────────────────────────────── */
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    #toolbar h1 {
+      font-size: 14px;
+      letter-spacing: 3px;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .sep { width: 1px; height: 18px; background: var(--border); }
+
+    .btn {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 4px 13px;
+      cursor: pointer;
+      border-radius: 3px;
+      font-family: inherit;
+      font-size: 12px;
+      transition: border-color 0.12s;
+      white-space: nowrap;
+    }
+    .btn:hover  { border-color: var(--accent); }
+    .btn:disabled { opacity: 0.35; cursor: default; border-color: var(--border); }
+    .btn.active { border-color: var(--green); color: var(--green); background: #2cb67d1a; }
+    .btn.active:hover { border-color: var(--green); }
+
+    #file-input { display: none; }
+
+    #sel-label {
+      font-size: 12px;
+      color: var(--accent);
+      min-width: 72px;
+    }
+
+    #status {
+      color: var(--text-dim);
+      font-size: 11px;
+      margin-left: auto;
+      text-align: right;
+    }
+
+    #hint {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    /* ── Content area ───────────────────────────────── */
+    #content {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Drop zone ──────────────────────────────────── */
+    #dropzone {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      border: 2px dashed var(--border);
+      margin: 40px;
+      border-radius: 10px;
+      color: var(--text-dim);
+      font-size: 15px;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    #dropzone small { font-size: 11px; }
+    #dropzone.drag-active { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Table area ─────────────────────────────────── */
+    #table-area {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header row ─────────────────────────────────── */
+    .header-row {
+      display: flex;
+      background: var(--ch-bg);
+      border-bottom: 2px solid var(--accent);
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    .ch-header { display: flex; flex-shrink: 0; }
+
+    .ch-hcell {
+      width: 46px;
+      text-align: center;
+      padding: 7px 2px;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      border-right: 1px solid var(--border);
+    }
+    .ch-hcell.new  { color: var(--accent); }
+    .ch-hcell.orig { color: var(--text-dim); }
+
+    .data-header { display: flex; overflow: hidden; }
+    .data-hcell {
+      padding: 7px 10px;
+      color: var(--text-dim);
+      font-size: 11px;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      border-right: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .data-hcell:last-child { border-right: none; }
+    .data-hcell.id-active { color: var(--green); box-shadow: inset 0 -2px 0 var(--green); }
+
+    /* ── Rows scroll container ──────────────────────── */
+    #rows-container {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: auto;
+      position: relative;
+    }
+    #rows-inner {
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+    }
+
+    /* ── Row wrapper (one per data row) ─────────────── */
+    .row-wrap {
+      display: flex;
+      align-items: stretch;
+      position: relative;
+      cursor: grab;
+      flex-shrink: 0;
+    }
+    .row-wrap:active { cursor: grabbing; }
+    .row-wrap.dragging { opacity: 0.25; }
+
+    /* Drop indicator lines */
+    .row-wrap.drop-before::before,
+    .row-wrap.drop-after::after {
+      content: '';
+      position: absolute;
+      left: 0; right: 0;
+      height: 2px;
+      background: var(--drag-line);
+      z-index: 30;
+      pointer-events: none;
+    }
+    .row-wrap.drop-before::before { top: 0; }
+    .row-wrap.drop-after::after  { bottom: 0; }
+
+    /* ── Channel cells (left, continuous column) ─────── */
+    .ch-cells {
+      display: flex;
+      flex-shrink: 0;
+      background: var(--ch-bg);
+      /* no margin/gap — creates the continuous vertical strip */
+    }
+
+    .ch-num {
+      width: 46px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      border-right: 1px solid var(--border);
+      /* no top/bottom border — columns flow without row breaks */
+    }
+    .ch-num.new-num  { color: var(--accent); }
+    .ch-num.orig-num { color: var(--text-dim); }
+
+    /* ── Data card (draggable, right side) ──────────── */
+    .data-card {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      margin: 2px 4px 2px 2px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      transition: border-color 0.1s, background 0.1s;
+      flex-shrink: 0;
+    }
+
+    .row-wrap:hover .data-card { border-color: var(--hover-bd); }
+
+    .row-wrap.selected .data-card {
+      background: var(--selected-bg);
+      border-color: var(--selected-bd);
+    }
+
+    .data-cell {
+      padding: 5px 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      border-right: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .data-cell:last-child { border-right: none; }
+    .data-cell.id-cell { color: var(--green); }
+
+    /* ── Empty drop zone at bottom ──────────────────── */
+    #drop-tail {
+      flex: 1;
+      min-height: 40px;
+    }
+    #drop-tail.drop-here {
+      border-top: 2px solid var(--drag-line);
+    }
+
+    /* scrollbar */
+    #rows-container::-webkit-scrollbar { width: 8px; height: 8px; }
+    #rows-container::-webkit-scrollbar-track { background: var(--ch-bg); }
+    #rows-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    #rows-container::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <h1>DRAG&amp;DROPPER</h1>
+  <div class="sep"></div>
+  <label class="btn" for="file-input">Open CSV</label>
+  <input type="file" id="file-input" accept=".csv,.tsv,.txt,.tab">
+  <button class="btn" id="save-btn" disabled>Save</button>
+  <button class="btn" id="reorder-id-btn" disabled title="Reassign first-column values in sorted order after reordering rows">Reorder ID col: OFF</button>
+  <div class="sep"></div>
+  <span id="sel-label"></span>
+  <button class="btn" id="clear-sel-btn" disabled style="font-size:11px">Clear sel.</button>
+  <div class="sep"></div>
+  <span id="hint">Click rows to select · Drag to reorder</span>
+  <span id="status">No file loaded</span>
+</div>
+
+<div id="content">
+  <div id="dropzone">
+    Drop a CSV / TSV file here
+    <small>or click <b>Open CSV</b> in the toolbar</small>
+  </div>
+  <div id="table-area" style="display:none">
+    <div class="header-row" id="header-row"></div>
+    <div id="rows-container">
+      <div id="rows-inner">
+        <!-- rows injected here -->
+        <div id="drop-tail"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  State
+// ═══════════════════════════════════════════════════════════
+const state = {
+  headers:              [],   // string[]
+  rawHeaderLine:        '',   // verbatim first line for save
+  rows:                 [],   // {id, originalIndex, data:string[], rawLine}
+  separator:            ',',
+  lineEnding:           '\n',
+  selected:             new Set(),  // row ids
+  colWidths:            [],   // px widths per column
+  reorderIdCol:         false,
+  firstColValuesSorted: [],   // sorted set of original col-0 values, assigned by position on save
+};
+
+let fileName   = '';
+let idCounter  = 0;
+
+// drag state
+let dragIds    = [];   // row ids being dragged
+let dragOverId = null;
+let dragPos    = null; // 'before' | 'after' | 'tail'
+
+// ═══════════════════════════════════════════════════════════
+//  CSV parsing
+// ═══════════════════════════════════════════════════════════
+function detectSep(text) {
+  const line = text.split('\n')[0];
+  const t = (line.match(/\t/g)  || []).length;
+  const s = (line.match(/;/g)   || []).length;
+  const c = (line.match(/,/g)   || []).length;
+  if (t >= s && t >= c) return '\t';
+  if (s > c)            return ';';
+  return ',';
+}
+
+function parseLine(line, sep) {
+  if (sep === '\t') return line.split('\t');
+  const fields = [];
+  let field = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') {
+      if (inQ && line[i + 1] === '"') { field += '"'; i++; }
+      else inQ = !inQ;
+    } else if (c === sep && !inQ) {
+      fields.push(field); field = '';
+    } else {
+      field += c;
+    }
+  }
+  fields.push(field);
+  return fields;
+}
+
+function loadCSV(text) {
+  const le  = text.includes('\r\n') ? '\r\n' : '\n';
+  const sep = detectSep(text);
+  const lines = text.split(/\r?\n/);
+  while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+
+  const headers = parseLine(lines[0], sep);
+  const rows = lines.slice(1).map((rawLine, i) => ({
+    id:            ++idCounter,
+    originalIndex: i,
+    data:          parseLine(rawLine, sep),
+    rawLine,
+  }));
+
+  state.headers              = headers;
+  state.rawHeaderLine        = lines[0];
+  state.rows                 = rows;
+  state.separator            = sep;
+  state.lineEnding           = le;
+  state.selected             = new Set();
+  state.colWidths            = computeColWidths(headers, rows);
+  state.reorderIdCol         = false;
+  state.firstColValuesSorted = computeFirstColSorted(rows);
+
+  renderAll();
+}
+
+function computeFirstColSorted(rows) {
+  const vals = rows.map(r => r.data[0] ?? '');
+  const allNumeric = vals.every(v => v.trim() !== '' && !isNaN(Number(v.trim())));
+  return [...vals].sort(allNumeric
+    ? (a, b) => Number(a) - Number(b)
+    : (a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+function computeColWidths(headers, rows) {
+  const MIN = 60, MAX = 300;
+  return headers.map((h, ci) => {
+    let max = h.length;
+    for (const r of rows) {
+      const v = (r.data[ci] || '').length;
+      if (v > max) max = v;
+    }
+    return Math.min(Math.max(max * 8 + 24, MIN), MAX);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Rendering
+// ═══════════════════════════════════════════════════════════
+function renderAll() {
+  document.getElementById('dropzone').style.display = 'none';
+  document.getElementById('table-area').style.display = 'flex';
+  document.getElementById('save-btn').disabled = false;
+  const idBtn = document.getElementById('reorder-id-btn');
+  idBtn.disabled = false;
+  idBtn.classList.remove('active');
+  idBtn.textContent = 'Reorder ID col: OFF';
+  renderHeader();
+  renderRows();
+  updateStatus();
+}
+
+function renderHeader() {
+  const hr = document.getElementById('header-row');
+  hr.innerHTML = '';
+
+  // channel column headers
+  const chh = document.createElement('div');
+  chh.className = 'ch-header';
+  chh.innerHTML = `
+    <div class="ch-hcell new"  title="New position (current layout order)">#new</div>
+    <div class="ch-hcell orig" title="Original position (as in file)">#orig</div>`;
+  hr.appendChild(chh);
+
+  // data column headers
+  const dh = document.createElement('div');
+  dh.className = 'data-header';
+  state.headers.forEach((h, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'data-hcell' + (i === 0 && state.reorderIdCol ? ' id-active' : '');
+    cell.style.width = state.colWidths[i] + 'px';
+    cell.textContent = h + (i === 0 && state.reorderIdCol ? ' ↺' : '');
+    cell.title = i === 0 && state.reorderIdCol
+      ? `${h} — values reassigned in sorted order on save`
+      : h;
+    dh.appendChild(cell);
+  });
+  hr.appendChild(dh);
+}
+
+function renderRows() {
+  const inner = document.getElementById('rows-inner');
+  // Remove all row-wrap elements, keep #drop-tail
+  inner.querySelectorAll('.row-wrap').forEach(el => el.remove());
+
+  const tail = document.getElementById('drop-tail');
+
+  state.rows.forEach((row, idx) => {
+    const el = buildRowEl(row, idx + 1);
+    inner.insertBefore(el, tail);
+  });
+
+  updateSelUI();
+}
+
+function buildRowEl(row, newNum) {
+  const wrap = document.createElement('div');
+  wrap.className = 'row-wrap' + (state.selected.has(row.id) ? ' selected' : '');
+  wrap.dataset.id = String(row.id);
+  wrap.draggable = true;
+
+  // ── channel cells (left strip, no card)
+  const chCells = document.createElement('div');
+  chCells.className = 'ch-cells';
+  chCells.innerHTML = `
+    <div class="ch-num new-num">${newNum}</div>
+    <div class="ch-num orig-num">${row.originalIndex + 1}</div>`;
+  wrap.appendChild(chCells);
+
+  // ── data card
+  const card = document.createElement('div');
+  card.className = 'data-card';
+  state.headers.forEach((_, ci) => {
+    const cell = document.createElement('div');
+    const isIdCell = ci === 0 && state.reorderIdCol;
+    cell.className = 'data-cell' + (isIdCell ? ' id-cell' : '');
+    cell.style.width = state.colWidths[ci] + 'px';
+    // When id reorder is on, first cell shows the value that will be written on save
+    const val = isIdCell
+      ? (state.firstColValuesSorted[newNum - 1] ?? '')
+      : (row.data[ci] != null ? row.data[ci] : '');
+    cell.textContent = val;
+    cell.title = isIdCell ? `${val}  (was: ${row.data[0]})` : val;
+    card.appendChild(cell);
+  });
+  wrap.appendChild(card);
+
+  // events
+  wrap.addEventListener('click',     () => onRowClick(row.id));
+  wrap.addEventListener('dragstart', e  => onDragStart(e, row.id));
+  wrap.addEventListener('dragend',   onDragEnd);
+  wrap.addEventListener('dragover',  e  => onDragOver(e, row.id));
+  wrap.addEventListener('drop',      e  => onDrop(e, row.id));
+
+  return wrap;
+}
+
+// Efficiently update channel numbers without full re-render
+function refreshChannelNumbers() {
+  state.rows.forEach((row, idx) => {
+    const el = document.querySelector(`.row-wrap[data-id="${row.id}"]`);
+    if (!el) return;
+    const nums = el.querySelectorAll('.ch-num');
+    if (nums[0]) nums[0].textContent = idx + 1;
+    if (nums[1]) nums[1].textContent = row.originalIndex + 1;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Selection
+// ═══════════════════════════════════════════════════════════
+function onRowClick(id) {
+  if (state.selected.has(id)) state.selected.delete(id);
+  else                         state.selected.add(id);
+  const el = document.querySelector(`.row-wrap[data-id="${id}"]`);
+  if (el) el.classList.toggle('selected', state.selected.has(id));
+  updateSelUI();
+}
+
+function clearSelection() {
+  state.selected.clear();
+  document.querySelectorAll('.row-wrap.selected').forEach(el => el.classList.remove('selected'));
+  updateSelUI();
+}
+
+function updateSelUI() {
+  const n = state.selected.size;
+  document.getElementById('sel-label').textContent = n > 0 ? `${n} selected` : '';
+  document.getElementById('clear-sel-btn').disabled = n === 0;
+}
+
+function updateStatus() {
+  const sepLabel = state.separator === '\t' ? 'TAB' : `"${state.separator}"`;
+  document.getElementById('status').textContent =
+    `${fileName} · ${state.rows.length} rows · ${state.headers.length} cols · sep ${sepLabel}`;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Drag & Drop
+// ═══════════════════════════════════════════════════════════
+function onDragStart(e, id) {
+  if (state.selected.has(id)) {
+    // drag all selected, in current row order
+    dragIds = state.rows.filter(r => state.selected.has(r.id)).map(r => r.id);
+  } else {
+    clearSelection();
+    dragIds = [id];
+  }
+
+  // ghost image
+  const ghost = Object.assign(document.createElement('div'), {
+    textContent: dragIds.length > 1 ? `⠿ ${dragIds.length} rows` : '⠿ 1 row',
+  });
+  Object.assign(ghost.style, {
+    position: 'fixed', top: '-200px', left: '-200px',
+    background: '#7f5af0', color: '#fff',
+    padding: '5px 13px', borderRadius: '4px',
+    fontFamily: 'monospace', fontSize: '13px',
+  });
+  document.body.appendChild(ghost);
+  e.dataTransfer.setDragImage(ghost, 0, 0);
+  requestAnimationFrame(() => ghost.remove());
+
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragIds.join(','));
+
+  dragIds.forEach(did => {
+    const el = document.querySelector(`.row-wrap[data-id="${did}"]`);
+    if (el) el.classList.add('dragging');
+  });
+}
+
+function onDragEnd() {
+  dragIds.forEach(did => {
+    const el = document.querySelector(`.row-wrap[data-id="${did}"]`);
+    if (el) el.classList.remove('dragging');
+  });
+  clearDropIndicators();
+  dragIds    = [];
+  dragOverId = null;
+  dragPos    = null;
+}
+
+function onDragOver(e, id) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  if (dragIds.includes(id)) return;
+
+  const el = document.querySelector(`.row-wrap[data-id="${id}"]`);
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const pos  = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+
+  if (dragOverId === id && dragPos === pos) return;
+  clearDropIndicators();
+  dragOverId = id;
+  dragPos    = pos;
+  el.classList.add(pos === 'before' ? 'drop-before' : 'drop-after');
+  document.getElementById('drop-tail').classList.remove('drop-here');
+}
+
+function clearDropIndicators() {
+  document.querySelectorAll('.drop-before, .drop-after').forEach(el => {
+    el.classList.remove('drop-before', 'drop-after');
+  });
+  document.getElementById('drop-tail').classList.remove('drop-here');
+}
+
+function onDrop(e, targetId) {
+  e.preventDefault();
+  clearDropIndicators();
+  if (!dragIds.length || dragIds.includes(targetId)) return;
+
+  const dragging = dragIds.map(did => state.rows.find(r => r.id === did)).filter(Boolean);
+  const rest     = state.rows.filter(r => !dragIds.includes(r.id));
+
+  const targetInRest = rest.findIndex(r => r.id === targetId);
+  const insertAt     = dragPos === 'before' ? targetInRest : targetInRest + 1;
+  rest.splice(insertAt < 0 ? rest.length : insertAt, 0, ...dragging);
+  state.rows = rest;
+
+  renderRows();
+  refreshChannelNumbers();
+}
+
+// Drop on tail (after last row)
+document.getElementById('drop-tail').addEventListener('dragover', e => {
+  e.preventDefault();
+  if (!dragIds.length) return;
+  clearDropIndicators();
+  dragOverId = null;
+  dragPos    = 'tail';
+  document.getElementById('drop-tail').classList.add('drop-here');
+});
+
+document.getElementById('drop-tail').addEventListener('drop', e => {
+  e.preventDefault();
+  clearDropIndicators();
+  if (!dragIds.length) return;
+
+  const dragging = dragIds.map(did => state.rows.find(r => r.id === did)).filter(Boolean);
+  const rest     = state.rows.filter(r => !dragIds.includes(r.id));
+  rest.push(...dragging);
+  state.rows = rest;
+
+  renderRows();
+  refreshChannelNumbers();
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Save
+// ═══════════════════════════════════════════════════════════
+function serializeField(f, sep) {
+  if (f.includes(sep) || f.includes('"') || f.includes('\n') || f.includes('\r')) {
+    return '"' + f.replace(/"/g, '""') + '"';
+  }
+  return f;
+}
+
+function serializeLine(fields, sep) {
+  if (sep === '\t') return fields.join('\t');
+  return fields.map(f => serializeField(f, sep)).join(sep);
+}
+
+function saveCSV() {
+  const dataLines = state.rows.map((row, i) => {
+    if (state.reorderIdCol) {
+      const fields = [state.firstColValuesSorted[i] ?? '', ...row.data.slice(1)];
+      return serializeLine(fields, state.separator);
+    }
+    return row.rawLine;
+  });
+  const lines = [state.rawHeaderLine, ...dataLines];
+  const text  = lines.join(state.lineEnding);
+  const blob  = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url   = URL.createObjectURL(blob);
+  const a     = Object.assign(document.createElement('a'), { href: url, download: fileName || 'reordered.csv' });
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  File input (toolbar button)
+// ═══════════════════════════════════════════════════════════
+document.getElementById('file-input').addEventListener('change', function () {
+  const file = this.files[0];
+  if (!file) return;
+  fileName = file.name;
+  const reader = new FileReader();
+  reader.onload = e => loadCSV(e.target.result);
+  reader.readAsText(file);
+  this.value = '';
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Dropzone (drag file onto window)
+// ═══════════════════════════════════════════════════════════
+const dropzone = document.getElementById('dropzone');
+
+dropzone.addEventListener('click', () => document.getElementById('file-input').click());
+
+document.addEventListener('dragover', e => {
+  if (e.target.closest('#rows-container')) return;
+  e.preventDefault();
+  dropzone.classList.add('drag-active');
+});
+
+document.addEventListener('dragleave', e => {
+  if (!e.relatedTarget || e.relatedTarget === document.documentElement) {
+    dropzone.classList.remove('drag-active');
+  }
+});
+
+document.addEventListener('drop', e => {
+  if (e.target.closest('#rows-container') || e.target.closest('#drop-tail')) return;
+  e.preventDefault();
+  dropzone.classList.remove('drag-active');
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  fileName = file.name;
+  const reader = new FileReader();
+  reader.onload = ev => loadCSV(ev.target.result);
+  reader.readAsText(file);
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Toolbar buttons
+// ═══════════════════════════════════════════════════════════
+document.getElementById('save-btn').addEventListener('click', saveCSV);
+
+document.getElementById('clear-sel-btn').addEventListener('click', clearSelection);
+
+document.getElementById('reorder-id-btn').addEventListener('click', function () {
+  state.reorderIdCol = !state.reorderIdCol;
+  this.classList.toggle('active', state.reorderIdCol);
+  this.textContent = `Reorder ID col: ${state.reorderIdCol ? 'ON' : 'OFF'}`;
+  // Re-render header (to update ↺ marker) and rows (to show reassigned values)
+  renderHeader();
+  renderRows();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') clearSelection();
+  if ((e.ctrlKey || e.metaKey) && e.key === 'a' && state.rows.length) {
+    e.preventDefault();
+    state.rows.forEach(r => state.selected.add(r.id));
+    document.querySelectorAll('.row-wrap').forEach(el => el.classList.add('selected'));
+    updateSelUI();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    if (!document.getElementById('save-btn').disabled) saveCSV();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  Sync scroll of header with rows-container (horizontal)
+// ═══════════════════════════════════════════════════════════
+document.getElementById('rows-container').addEventListener('scroll', function () {
+  // Sync horizontal scroll of header's data portion
+  const dh = document.querySelector('.data-header');
+  if (dh) dh.style.transform = `translateX(-${this.scrollLeft}px)`;
+});
+</script>
+</body>
+</html>
