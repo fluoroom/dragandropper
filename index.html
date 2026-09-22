@@ -279,22 +279,6 @@
       pointer-events: none;
     }
 
-    #n76-ghost-section {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .n76-ghost-header {
-      padding: 5px 14px;
-      font-size: 10px;
-      letter-spacing: 0.5px;
-      color: rgba(255, 215, 0, 0.65);
-      border-top: 2px dotted rgba(255, 215, 0, 0.45);
-      border-bottom: 1px solid var(--border);
-      background: rgba(255, 215, 0, 0.04);
-      flex-shrink: 0;
-    }
-
     .ghost-row-wrap {
       display: flex;
       align-items: stretch;
@@ -475,8 +459,8 @@ function renderAll() {
   n76Btn.disabled = false;
   const nInput = document.getElementById('n76-n-input');
   nInput.max = state.rows.length;
-  state.n76N = state.rows.length;
-  nInput.value = state.n76N;
+  state.n76N = 1;
+  nInput.value = 1;
   if (state.n76Preview) document.getElementById('n76-controls').style.display = 'flex';
   renderHeader();
   renderRows();
@@ -588,15 +572,15 @@ function getN76N() {
   return (n >= 1 && n <= state.rows.length) ? n : state.rows.length;
 }
 
-function buildGhostRowEl(row, groupPos, origCh) {
+function buildGhostRowEl(row) {
   const wrap = document.createElement('div');
   wrap.className = 'ghost-row-wrap';
 
   const chCells = document.createElement('div');
   chCells.className = 'ch-cells';
   chCells.innerHTML = `
-    <div class="ch-num new-num">${groupPos}</div>
-    <div class="ch-num orig-num">${origCh}</div>`;
+    <div class="ch-num" style="color:var(--text-dim)">–</div>
+    <div class="ch-num" style="color:var(--text-dim)">–</div>`;
   wrap.appendChild(chCells);
 
   const card = document.createElement('div');
@@ -614,44 +598,32 @@ function buildGhostRowEl(row, groupPos, origCh) {
 
 function renderN76Preview() {
   const inner = document.getElementById('rows-inner');
-  inner.querySelectorAll('.n76-sep').forEach(el => el.remove());
-  const ghost = document.getElementById('n76-ghost-section');
-  if (ghost) ghost.remove();
+  inner.querySelectorAll('.n76-sep, .ghost-row-wrap').forEach(el => el.remove());
+  const ghostSec = document.getElementById('n76-ghost-section');
+  if (ghostSec) ghostSec.remove();
 
   if (!state.n76Preview || !state.rows.length) return;
 
-  // Dotted yellow separators after every 32nd real row
-  const rowEls = Array.from(inner.querySelectorAll('.row-wrap'));
-  rowEls.forEach((el, idx) => {
-    if ((idx + 1) % 32 === 0) {
-      const sep = document.createElement('div');
-      sep.className = 'n76-sep';
-      el.after(sep);
-    }
-  });
-
-  // Ghost section: channels 1–N repeating into 32-row groups (2 groups = 64 rows)
   const N = getN76N();
   const channels = state.rows.slice(0, N);
-  const section = document.createElement('div');
-  section.id = 'n76-ghost-section';
+  const rowEls = Array.from(inner.querySelectorAll('.row-wrap'));
 
-  const lbl = document.createElement('div');
-  lbl.className = 'n76-ghost-header';
-  lbl.textContent = `▼ N76 group preview — ch 1–${N} repeating into 32-blocks`;
-  section.appendChild(lbl);
-
-  for (let i = 0; i < 64; i++) {
-    if (i > 0 && i % 32 === 0) {
-      const sep = document.createElement('div');
-      sep.className = 'n76-sep';
-      section.appendChild(sep);
+  rowEls.forEach((el, idx) => {
+    if (idx % 32 === 0) {
+      // Separator between groups (not before the first group)
+      if (idx > 0) {
+        const sep = document.createElement('div');
+        sep.className = 'n76-sep';
+        el.before(sep);
+      }
+      // N ghost rows at the top of each group
+      // Each el.before() inserts just before el, so inserting g=0..N-1 in order
+      // produces: ghost[0] → ghost[1] → ... → el
+      for (let g = 0; g < N; g++) {
+        el.before(buildGhostRowEl(channels[g]));
+      }
     }
-    const row = channels[i % N];
-    section.appendChild(buildGhostRowEl(row, (i % 32) + 1, (i % N) + 1));
-  }
-
-  document.getElementById('drop-tail').before(section);
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
