@@ -270,6 +270,52 @@
     #rows-container::-webkit-scrollbar-track { background: var(--ch-bg); }
     #rows-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
     #rows-container::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+    /* ── N76 Preview ─────────────────────────────────── */
+    .n76-sep {
+      height: 0;
+      border-top: 1px dashed rgba(255, 215, 0, 0.55);
+      flex-shrink: 0;
+      pointer-events: none;
+    }
+
+    #n76-ghost-section {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .n76-ghost-header {
+      padding: 5px 14px;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      color: rgba(255, 215, 0, 0.65);
+      border-top: 2px dotted rgba(255, 215, 0, 0.45);
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 215, 0, 0.04);
+      flex-shrink: 0;
+    }
+
+    .ghost-row-wrap {
+      display: flex;
+      align-items: stretch;
+      flex-shrink: 0;
+      opacity: 0.42;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    #n76-n-input {
+      width: 54px;
+      background: var(--surface2);
+      color: var(--accent);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 3px 6px;
+      font-family: inherit;
+      font-size: 12px;
+      text-align: right;
+    }
+    #n76-n-input:focus { outline: none; border-color: var(--accent); }
   </style>
 </head>
 <body>
@@ -281,6 +327,10 @@
   <input type="file" id="file-input" accept=".csv,.tsv,.txt,.tab">
   <button class="btn" id="save-btn" disabled>Save</button>
   <button class="btn" id="reorder-id-btn" disabled title="Reassign first-column values in sorted order after reordering rows">Reorder ID col: OFF</button>
+  <button class="btn" id="n76-btn" disabled>N76: OFF</button>
+  <span id="n76-controls" style="display:none; gap:5px; align-items:center; color:var(--text-dim); font-size:11px">
+    ch 1–<input type="number" id="n76-n-input" min="1" value="1">
+  </span>
   <div class="sep"></div>
   <span id="sel-label"></span>
   <button class="btn" id="clear-sel-btn" disabled style="font-size:11px">Clear sel.</button>
@@ -318,6 +368,8 @@ const state = {
   selected:             new Set(),  // row ids
   colWidths:            [],   // px widths per column
   reorderIdCol:         false,
+  n76Preview:           false,
+  n76N:                 0,    // 0 = all rows
   firstColValuesSorted: [],   // sorted set of original col-0 values, assigned by position on save
 };
 
@@ -419,6 +471,13 @@ function renderAll() {
   idBtn.disabled = false;
   idBtn.classList.remove('active');
   idBtn.textContent = 'Reorder ID col: OFF';
+  const n76Btn = document.getElementById('n76-btn');
+  n76Btn.disabled = false;
+  const nInput = document.getElementById('n76-n-input');
+  nInput.max = state.rows.length;
+  state.n76N = state.rows.length;
+  nInput.value = state.n76N;
+  if (state.n76Preview) document.getElementById('n76-controls').style.display = 'flex';
   renderHeader();
   renderRows();
   updateStatus();
@@ -465,6 +524,7 @@ function renderRows() {
   });
 
   updateSelUI();
+  renderN76Preview();
 }
 
 function buildRowEl(row, newNum) {
@@ -518,6 +578,80 @@ function refreshChannelNumbers() {
     if (nums[0]) nums[0].textContent = idx + 1;
     if (nums[1]) nums[1].textContent = row.originalIndex + 1;
   });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  N76 Preview
+// ═══════════════════════════════════════════════════════════
+function getN76N() {
+  const n = state.n76N;
+  return (n >= 1 && n <= state.rows.length) ? n : state.rows.length;
+}
+
+function buildGhostRowEl(row, groupPos, origCh) {
+  const wrap = document.createElement('div');
+  wrap.className = 'ghost-row-wrap';
+
+  const chCells = document.createElement('div');
+  chCells.className = 'ch-cells';
+  chCells.innerHTML = `
+    <div class="ch-num new-num">${groupPos}</div>
+    <div class="ch-num orig-num">${origCh}</div>`;
+  wrap.appendChild(chCells);
+
+  const card = document.createElement('div');
+  card.className = 'data-card';
+  state.headers.forEach((_, ci) => {
+    const cell = document.createElement('div');
+    cell.className = 'data-cell';
+    cell.style.width = state.colWidths[ci] + 'px';
+    cell.textContent = row.data[ci] ?? '';
+    card.appendChild(cell);
+  });
+  wrap.appendChild(card);
+  return wrap;
+}
+
+function renderN76Preview() {
+  const inner = document.getElementById('rows-inner');
+  inner.querySelectorAll('.n76-sep').forEach(el => el.remove());
+  const ghost = document.getElementById('n76-ghost-section');
+  if (ghost) ghost.remove();
+
+  if (!state.n76Preview || !state.rows.length) return;
+
+  // Dotted yellow separators after every 32nd real row
+  const rowEls = Array.from(inner.querySelectorAll('.row-wrap'));
+  rowEls.forEach((el, idx) => {
+    if ((idx + 1) % 32 === 0) {
+      const sep = document.createElement('div');
+      sep.className = 'n76-sep';
+      el.after(sep);
+    }
+  });
+
+  // Ghost section: channels 1–N repeating into 32-row groups (2 groups = 64 rows)
+  const N = getN76N();
+  const channels = state.rows.slice(0, N);
+  const section = document.createElement('div');
+  section.id = 'n76-ghost-section';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'n76-ghost-header';
+  lbl.textContent = `▼ N76 group preview — ch 1–${N} repeating into 32-blocks`;
+  section.appendChild(lbl);
+
+  for (let i = 0; i < 64; i++) {
+    if (i > 0 && i % 32 === 0) {
+      const sep = document.createElement('div');
+      sep.className = 'n76-sep';
+      section.appendChild(sep);
+    }
+    const row = channels[i % N];
+    section.appendChild(buildGhostRowEl(row, (i % 32) + 1, (i % N) + 1));
+  }
+
+  document.getElementById('drop-tail').before(section);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -776,6 +910,25 @@ document.getElementById('rows-container').addEventListener('scroll', function ()
   // Sync horizontal scroll of header's data portion
   const dh = document.querySelector('.data-header');
   if (dh) dh.style.transform = `translateX(-${this.scrollLeft}px)`;
+});
+
+document.getElementById('n76-btn').addEventListener('click', function () {
+  if (!state.rows.length) return;
+  state.n76Preview = !state.n76Preview;
+  this.classList.toggle('active', state.n76Preview);
+  this.textContent = `N76: ${state.n76Preview ? 'ON' : 'OFF'}`;
+  const ctrl = document.getElementById('n76-controls');
+  ctrl.style.display = state.n76Preview ? 'flex' : 'none';
+  renderRows();
+});
+
+document.getElementById('n76-n-input').addEventListener('input', function () {
+  const val = parseInt(this.value, 10);
+  if (!isNaN(val) && val >= 1) {
+    state.n76N = Math.min(val, state.rows.length);
+    this.value = state.n76N;
+  }
+  renderN76Preview();
 });
 </script>
 </body>
