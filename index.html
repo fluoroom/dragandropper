@@ -608,21 +608,20 @@ function renderN76Preview() {
   const channels = state.rows.slice(0, N);
   const rowEls = Array.from(inner.querySelectorAll('.row-wrap'));
 
+  // Ghost rows count toward the 32-row blocks.
+  // Group 1: 32 real rows, no ghost injection (they're already first in the list).
+  // Group 2+: N ghost rows + (32-N) real rows = 32 total each.
+  // nextSep tracks which real-row index starts the next group boundary.
+  let nextSep = 32;
   rowEls.forEach((el, idx) => {
-    if (idx % 32 === 0) {
-      // Separator between groups (not before the first group)
-      if (idx > 0) {
-        const sep = document.createElement('div');
-        sep.className = 'n76-sep';
-        el.before(sep);
-      }
-      // N ghost rows at the top of each group
-      // Each el.before() inserts just before el, so inserting g=0..N-1 in order
-      // produces: ghost[0] → ghost[1] → ... → el
-      for (let g = 0; g < N; g++) {
-        el.before(buildGhostRowEl(channels[g]));
-      }
-    }
+    if (idx !== nextSep) return;
+    // sep then ghosts: el.before() inserts immediately before el each time,
+    // so the result is: sep → ghost[0] → ghost[1] → ... → el
+    const sep = document.createElement('div');
+    sep.className = 'n76-sep';
+    el.before(sep);
+    for (let g = 0; g < N; g++) el.before(buildGhostRowEl(channels[g]));
+    nextSep = idx + (32 - N);
   });
 }
 
