@@ -309,6 +309,7 @@
   <div class="sep"></div>
   <label class="btn" for="file-input">Open CSV</label>
   <input type="file" id="file-input" accept=".csv,.tsv,.txt,.tab">
+  <button class="btn" id="header-btn" title="Toggle whether the first line of the file is a header row or actual data. Re-parses the loaded file.">Header: ON</button>
   <button class="btn" id="save-btn" disabled>Save</button>
   <button class="btn" id="reorder-id-btn" disabled title="Reassign first-column values in sorted order after reordering rows">Reorder ID col: OFF</button>
   <button class="btn" id="n76-btn" disabled>N76: OFF</button>
@@ -355,10 +356,12 @@ const state = {
   n76Preview:           false,
   n76N:                 0,    // 0 = all rows
   firstColValuesSorted: [],   // sorted set of original col-0 values, assigned by position on save
+  hasHeader:            true, // false = file has no header row; first line is data (row 1)
 };
 
 let fileName   = '';
 let idCounter  = 0;
+let rawFileText = '';   // last-loaded file's raw text, kept so toggling "Header" can re-parse it
 
 // drag state
 let dragIds    = [];   // row ids being dragged
@@ -398,13 +401,30 @@ function parseLine(line, sep) {
 }
 
 function loadCSV(text) {
+  rawFileText = text;
+  parseAndRender();
+}
+
+function parseAndRender() {
+  const text = rawFileText;
   const le  = text.includes('\r\n') ? '\r\n' : '\n';
   const sep = detectSep(text);
   const lines = text.split(/\r?\n/);
   while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
 
-  const headers = parseLine(lines[0], sep);
-  const rows = lines.slice(1).map((rawLine, i) => ({
+  let headers, rawHeaderLine, dataLines;
+  if (state.hasHeader) {
+    headers       = parseLine(lines[0] || '', sep);
+    rawHeaderLine = lines[0] || '';
+    dataLines     = lines.slice(1);
+  } else {
+    const colCount = lines.length ? parseLine(lines[0], sep).length : 0;
+    headers       = Array.from({ length: colCount }, (_, i) => `Col ${i + 1}`);
+    rawHeaderLine = null;
+    dataLines     = lines;
+  }
+
+  const rows = dataLines.map((rawLine, i) => ({
     id:            ++idCounter,
     originalIndex: i,
     data:          parseLine(rawLine, sep),
@@ -412,7 +432,7 @@ function loadCSV(text) {
   }));
 
   state.headers              = headers;
-  state.rawHeaderLine        = lines[0];
+  state.rawHeaderLine        = rawHeaderLine;
   state.rows                 = rows;
   state.separator            = sep;
   state.lineEnding           = le;
@@ -789,7 +809,7 @@ function saveCSV() {
     }
     return row.rawLine;
   });
-  const lines = [state.rawHeaderLine, ...dataLines];
+  const lines = state.hasHeader ? [state.rawHeaderLine, ...dataLines] : dataLines;
   const text  = lines.join(state.lineEnding);
   const blob  = new Blob([text], { type: 'text/plain;charset=utf-8' });
   const url   = URL.createObjectURL(blob);
@@ -850,6 +870,13 @@ document.addEventListener('drop', e => {
 document.getElementById('save-btn').addEventListener('click', saveCSV);
 
 document.getElementById('clear-sel-btn').addEventListener('click', clearSelection);
+
+document.getElementById('header-btn').addEventListener('click', function () {
+  state.hasHeader = !state.hasHeader;
+  this.classList.toggle('active', !state.hasHeader);
+  this.textContent = `Header: ${state.hasHeader ? 'ON' : 'OFF'}`;
+  if (rawFileText) parseAndRender();
+});
 
 document.getElementById('reorder-id-btn').addEventListener('click', function () {
   state.reorderIdCol = !state.reorderIdCol;
